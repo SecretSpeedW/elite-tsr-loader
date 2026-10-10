@@ -1,19 +1,14 @@
--- Elite Hub Secure Loader (Protected Edition)
-local K_URL = {0xEA,0xD6,0xD6,0xD2,0xD1,0xCE,0x98,0x9D,0x9D,0xE7,0xDE,0xCB,0xD6,0xD7,0x8F,0xCA,0xD7,0xD0,0x8F,0xD5,0xD3,0xD6,0xD7,0x8E,0xD2,0xD3,0xD4,0xCE,0xDD,0x9D,0xDF,0xD7,0xDE,0xCD,0x99,0xCE,0xD2,0x8F,0xD5,0xD7,0xD0,0xCD,0xD7,0xD0,0xD1,0x8E,0xD6,0xD7,0xD4}
-local function D_LOAD(t)
-    local s = ""
-    for i = 1, #t do s = s .. string.char(bit32.bxor(t[i], 187)) end
-    return s
-end
-
-local WORKER_URL = D_LOAD(K_URL) -- https://elite-hub-gate.pavlo-melnik001.workers.dev
+-- Elite Hub Secure Loader
+local WORKER_URL = "https://elite-hub-gate.pavlo-melnik001.workers.dev"
 local SAVE_FILE = "elite_tsr_key.txt"
 local DISCORD_INVITE = "https://discord.gg/sy79UrhJj8"
 
--- Anti-Hooking / Dump Protection Check
-if hookfunction and isfunctionhooked and (isfunctionhooked(loadstring) or isfunctionhooked(print)) then
-    error("Security violation detected: Execution aborted.")
-end
+-- Anti-Hooking Protection Check
+pcall(function()
+    if isfunctionhooked and (isfunctionhooked(loadstring) or isfunctionhooked(print)) then
+        error("Security violation detected: Execution aborted.")
+    end
+end)
 
 local function httpRequest(options)
     local fn = (syn and syn.request) or (http and http.request) or http_request or (fluxus and fluxus.request) or request
