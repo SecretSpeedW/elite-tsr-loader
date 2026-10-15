@@ -30,7 +30,28 @@ local function httpRequest(options)
     error("Executor does not support HTTP requests")
 end
 
+local function elevateThread()
+    for _, fn in ipairs({
+        setthreadidentity,
+        setidentity,
+        set_thread_identity,
+        (syn and syn.set_thread_identity)
+    }) do
+        if type(fn) == "function" then
+            local ok = pcall(fn, 8)
+            if not ok then pcall(fn, 7) end
+        end
+    end
+    pcall(function()
+        if setthreadcaps then setthreadcaps(tonumber("0xFFFFFFFFFFFFFFFF") or -1) end
+        if setcapabilities then setcapabilities(tonumber("0xFFFFFFFFFFFFFFFF") or -1) end
+    end)
+end
+
+elevateThread()
+
 local function executeScript(code)
+    elevateThread()
     if getgenv then
         getgenv().rayfieldCached = nil
         getgenv().Rayfield = nil
