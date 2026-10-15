@@ -153,14 +153,8 @@ Tab:CreateButton({
         task.spawn(function()
             local success, payload = verifyKey(enteredKey)
             if success then
-                Rayfield:Notify({
-                    Title = "Access Granted",
-                    Content = "Starting Elite Hub...",
-                    Duration = 2.5,
-                    Image = 4483362458
-                })
-                task.wait(1)
                 pcall(function() Rayfield:Destroy() end)
+                task.wait(0.2)
                 if getgenv then
                     getgenv().rayfieldCached = nil
                     getgenv().Rayfield = nil
