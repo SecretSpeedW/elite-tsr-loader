@@ -27,42 +27,6 @@ do
     if hookfunction and origCloneref then
         pcall(hookfunction, origCloneref, safeCloneref)
     end
-
-    local function getCoreGuiFallback()
-        local hui = (env.gethui and env.gethui())
-        if hui then return hui end
-        local lp = game:GetService("Players").LocalPlayer
-        local pg = lp and (lp:FindFirstChild("PlayerGui") or lp:WaitForChild("PlayerGui", 2))
-        return pg or game
-    end
-
-    pcall(function()
-        if hookmetamethod then
-            local oldNc
-            oldNc = hookmetamethod(game, "__namecall", function(self, ...)
-                local method = getnamecallmethod()
-                if (method == "GetService" or method == "getService") and self == game then
-                    local sName = ...
-                    if tostring(sName) == "CoreGui" then
-                        return getCoreGuiFallback()
-                    end
-                end
-                return oldNc(self, ...)
-            end)
-        end
-    end)
-
-    pcall(function()
-        if hookfunction and game and game.GetService then
-            local oldGs
-            oldGs = hookfunction(game.GetService, function(self, sName, ...)
-                if tostring(sName) == "CoreGui" then
-                    return getCoreGuiFallback()
-                end
-                return oldGs(self, sName, ...)
-            end)
-        end
-    end)
 end
 
 local WORKER_URL = "https://elite-hub-gate.pavlo-melnik001.workers.dev"
@@ -179,22 +143,13 @@ end
 
 local function loadRayfield()
     local rfCode = game:HttpGet("https://sirius.menu/rayfield")
-    local rfFunc = loadstring(rfCode)
-    pcall(function()
-        local origCloneref = cloneref
-        local safeCloneref = function(obj)
-            if obj == nil then return nil end
-            if origCloneref then
-                local ok, res = pcall(origCloneref, obj)
-                if ok and res ~= nil then return res end
-            end
-            return obj
-        end
-        local baseEnv = (getgenv and getgenv()) or getfenv(0) or _G
-        local newEnv = setmetatable({ cloneref = safeCloneref }, { __index = baseEnv })
-        setfenv(rfFunc, newEnv)
-    end)
-    return rfFunc()
+    -- 1. Fix cloneref(nil) crash on line 21
+    rfCode = string.gsub(rfCode, "return%s+if%s+cloneref%s+then%s+cloneref%(service%)%s+else%s+service", "return (cloneref and service and cloneref(service)) or service")
+    -- 2. Fix CoreGui fallback when game:GetService('CoreGui') returns nil on Real Executor
+    rfCode = string.gsub(rfCode, 'local%s+CoreGui%s*=%s*getService%("CoreGui"%)', 'local CoreGui = (gethui and gethui()) or (pcall(getService, "CoreGui") and getService("CoreGui")) or nil')
+    -- 3. Fix Plugin capability check on Rayfield:FindFirstChild('Loading')
+    rfCode = string.gsub(rfCode, "if%s+Rayfield:FindFirstChild%('Loading'%)%s+then", "local _okL, _hasL = pcall(function() return Rayfield:FindFirstChild('Loading') end)\n\tif _okL and _hasL then")
+    return loadstring(rfCode)()
 end
 
 local Rayfield = loadRayfield()
