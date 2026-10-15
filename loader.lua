@@ -11,6 +11,21 @@ do
             env.gethui = function() return pg end
         end
     end
+
+    local origCloneref = cloneref
+    local safeCloneref = function(obj)
+        if obj == nil then return nil end
+        if origCloneref then
+            local ok, res = pcall(origCloneref, obj)
+            if ok and res ~= nil then return res end
+        end
+        return obj
+    end
+    env.cloneref = safeCloneref
+    _G.cloneref = safeCloneref
+    if hookfunction and origCloneref then
+        pcall(hookfunction, origCloneref, safeCloneref)
+    end
 end
 
 local WORKER_URL = "https://elite-hub-gate.pavlo-melnik001.workers.dev"
