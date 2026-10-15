@@ -1,39 +1,15 @@
--- language: Lua, file: loader.lua, target: Roblox (Potassium / Standard Luau)
+-- language: Lua, file: loader.lua, target: Roblox (Real Executor / Potassium)
 -- Elite Hub Secure Loader
+
+local lp = game:GetService("Players").LocalPlayer
+local pg = lp and (lp:FindFirstChild("PlayerGui") or lp:WaitForChild("PlayerGui", 5))
+if pg then
+    getgenv().gethui = function() return pg end
+end
 
 local WORKER_URL = "https://elite-hub-gate.pavlo-melnik001.workers.dev"
 local SAVE_FILE = "elite_tsr_key.txt"
 local DISCORD_INVITE = "https://discord.gg/sy79UrhJj8"
-
--- Capture privileged globals NOW, while this thread still has full capabilities.
--- On some executors (Project Real) threads resumed after a yield / from UI callbacks
--- cannot touch `Instance` (capability Plugin), so we hand it to the hub via a custom env.
-local RealInstance = Instance
-getgenv().__EliteInstance = RealInstance
-local BaseEnv = getfenv(1)
-local Captured = {
-    Instance = RealInstance, game = game, workspace = workspace, Enum = Enum,
-    Vector3 = Vector3, Vector2 = Vector2, CFrame = CFrame, UDim2 = UDim2, UDim = UDim,
-    Color3 = Color3, ColorSequence = ColorSequence, NumberSequence = NumberSequence,
-    NumberRange = NumberRange, TweenInfo = TweenInfo, Rect = Rect, Font = Font,
-    Ray = Ray, Region3 = Region3, BrickColor = BrickColor, Random = Random,
-    task = task, typeof = typeof, require = require, shared = shared,
-}
-local ScriptEnv
-ScriptEnv = setmetatable({}, {
-    __index = function(_, k)
-        local v = Captured[k]
-        if v ~= nil then return v end
-        return BaseEnv[k]
-    end,
-    __newindex = function(_, k, v) rawset(ScriptEnv, k, v) end,
-})
-rawset(ScriptEnv, "loadstring", function(src, name)
-    local f, e = loadstring(src, name)
-    if f and setfenv then pcall(setfenv, f, ScriptEnv) end
-    return f, e
-end)
-rawset(ScriptEnv, "_G", BaseEnv._G or _G)
 
 -- Anti-Hooking Protection Check
 pcall(function()
@@ -51,7 +27,6 @@ end
 local function executeScript(code)
     local loaded, compileErr = loadstring(code)
     if loaded then
-        if setfenv then pcall(setfenv, loaded, ScriptEnv) end
         local success, runErr = pcall(loaded)
         if not success then
             warn("[Elite Hub] Runtime Error: " .. tostring(runErr))
@@ -127,29 +102,51 @@ Tab:CreateParagraph({
     Content = "Keys are generated and distributed on our official Discord server.\nClick the button below to copy the server invite link."
 })
 
-local function safeNotify(t, c)
-    pcall(function()
-        Rayfield:Notify({ Title = t, Content = c, Duration = 4, Image = 4483362458 })
-    end)
-end
-
-local enteredKey, submittedKey = "", nil
+local enteredKey = ""
 
 Tab:CreateInput({
     Name = "License Key",
     PlaceholderText = "Paste your key here...",
     RemoveTextAfterFocusLost = false,
-    Callback = function(text) enteredKey = text end,
+    Callback = function(text)
+        enteredKey = text
+    end,
 })
 
 Tab:CreateButton({
     Name = "Launch Script",
     Callback = function()
         if enteredKey == "" then
-            safeNotify("Error", "Please enter a key before launching.")
+            Rayfield:Notify({
+                Title = "Error",
+                Content = "Please enter a key before launching.",
+                Duration = 4,
+                Image = 4483362458
+            })
             return
         end
-        submittedKey = enteredKey
+
+        Rayfield:Notify({
+            Title = "Authorizing...",
+            Content = "Checking key integrity with gateway...",
+            Duration = 2,
+            Image = 4483362458
+        })
+
+        task.spawn(function()
+            local success, payload = verifyKey(enteredKey)
+            if success then
+                Rayfield:Destroy()
+                executeScript(payload)
+            else
+                Rayfield:Notify({
+                    Title = "Access Denied",
+                    Content = tostring(payload),
+                    Duration = 4,
+                    Image = 4483362458
+                })
+            end
+        end)
     end,
 })
 
@@ -159,27 +156,12 @@ Tab:CreateButton({
         local clip = setclipboard or toclipboard or (syn and syn.write_clipboard)
         if clip then
             clip(DISCORD_INVITE)
-            safeNotify("Clipboard", "Discord invite link copied successfully!")
+            Rayfield:Notify({
+                Title = "Clipboard",
+                Content = "Discord invite link copied successfully!",
+                Duration = 3,
+                Image = 4483362458
+            })
         end
     end,
 })
-
--- Verification + launch happen in the main loader thread, not inside a UI callback
-local payload
-while not payload do
-    if submittedKey then
-        local k = submittedKey
-        submittedKey = nil
-        safeNotify("Authorizing...", "Checking key integrity with gateway...")
-        local okV, success, body = pcall(verifyKey, k)
-        if okV and success then
-            payload = body
-        else
-            safeNotify("Access Denied", tostring(okV and body or success))
-        end
-    end
-    task.wait(0.2)
-end
-
-pcall(function() Rayfield:Destroy() end)
-executeScript(payload)
