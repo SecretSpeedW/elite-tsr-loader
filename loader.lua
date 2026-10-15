@@ -1,33 +1,5 @@
+-- language: Lua, file: loader.lua, target: Roblox (Potassium / Standard Luau)
 -- Elite Hub Secure Loader
--- Capability & Environment Safety Polyfills (Real Executor / Level 3 compatibility)
-do
-    local getgenv = getgenv or function() return _G end
-    local env = getgenv()
-    if not env.gethui then
-        local Players = game:GetService("Players")
-        local lp = Players.LocalPlayer or Players.PlayerAdded:Wait()
-        local pg = lp and (lp:FindFirstChild("PlayerGui") or lp:WaitForChild("PlayerGui", 5))
-        if pg then
-            env.gethui = function() return pg end
-        end
-    end
-
-    local origCloneref = cloneref
-    local safeCloneref = function(obj)
-        if obj == nil then return nil end
-        if origCloneref then
-            local ok, res = pcall(origCloneref, obj)
-            if ok and res ~= nil then return res end
-        end
-        return obj
-    end
-    env.cloneref = safeCloneref
-    _G.cloneref = safeCloneref
-    pcall(function() getfenv(0).cloneref = safeCloneref end)
-    if hookfunction and origCloneref then
-        pcall(hookfunction, origCloneref, safeCloneref)
-    end
-end
 
 local WORKER_URL = "https://elite-hub-gate.pavlo-melnik001.workers.dev"
 local SAVE_FILE = "elite_tsr_key.txt"
@@ -46,53 +18,12 @@ local function httpRequest(options)
     error("Executor does not support HTTP requests")
 end
 
-local function elevateThread()
-    for _, fn in ipairs({
-        setthreadidentity,
-        setidentity,
-        set_thread_identity,
-        (syn and syn.set_thread_identity)
-    }) do
-        if type(fn) == "function" then
-            local ok = pcall(fn, 8)
-            if not ok then pcall(fn, 7) end
-        end
-    end
-    pcall(function()
-        if setthreadcaps then setthreadcaps(tonumber("0xFFFFFFFFFFFFFFFF") or -1) end
-        if setcapabilities then setcapabilities(tonumber("0xFFFFFFFFFFFFFFFF") or -1) end
-    end)
-end
-
-elevateThread()
-
 local function executeScript(code)
-    elevateThread()
-    if getgenv then
-        getgenv().rayfieldCached = nil
-        getgenv().Rayfield = nil
-        getgenv().SecureMode = nil
-        getgenv().RAYFIELD_SECURE = nil
-    end
     local loaded, compileErr = loadstring(code)
     if loaded then
-        local success, runErr = xpcall(loaded, debug.traceback)
+        local success, runErr = pcall(loaded)
         if not success then
-            local errMsg = tostring(runErr)
-            warn("[Elite Hub] Runtime Error: " .. errMsg)
-            pcall(function()
-                if setclipboard then
-                    setclipboard(errMsg)
-                end
-            end)
-            pcall(function()
-                local StarterGui = game:GetService("StarterGui")
-                StarterGui:SetCore("SendNotification", {
-                    Title = "Elite Hub Error (Copied)",
-                    Text = errMsg:sub(1, 140),
-                    Duration = 15
-                })
-            end)
+            warn("[Elite Hub] Runtime Error: " .. tostring(runErr))
         end
     else
         warn("[Elite Hub] Syntax Error: " .. tostring(compileErr))
@@ -141,18 +72,7 @@ if isfile and isfile(SAVE_FILE) then
     end
 end
 
-local function loadRayfield()
-    local rfCode = game:HttpGet("https://sirius.menu/rayfield")
-    -- 1. Fix cloneref(nil) crash on line 21
-    rfCode = string.gsub(rfCode, "return%s+if%s+cloneref%s+then%s+cloneref%(service%)%s+else%s+service", "return (cloneref and service and cloneref(service)) or service")
-    -- 2. Fix CoreGui fallback when game:GetService('CoreGui') returns nil on Real Executor
-    rfCode = string.gsub(rfCode, 'local%s+CoreGui%s*=%s*getService%("CoreGui"%)', 'local CoreGui = (gethui and gethui()) or (pcall(getService, "CoreGui") and getService("CoreGui")) or nil')
-    -- 3. Fix Plugin capability check on Rayfield:FindFirstChild('Loading')
-    rfCode = string.gsub(rfCode, "if%s+Rayfield:FindFirstChild%('Loading'%)%s+then", "local _okL, _hasL = pcall(function() return Rayfield:FindFirstChild('Loading') end)\n\tif _okL and _hasL then")
-    return loadstring(rfCode)()
-end
-
-local Rayfield = loadRayfield()
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 
 local Window = Rayfield:CreateWindow({
     Name = "Elite Hub | Key Verification",
@@ -161,7 +81,6 @@ local Window = Rayfield:CreateWindow({
     LoadingSubtitle = "Authentication Service",
     Theme = "Default",
     DisableRayfieldPrompts = false,
-    DisableBuildWarnings = true,
     ConfigurationSaving = {
         Enabled = false
     },
@@ -189,11 +108,21 @@ Tab:CreateInput({
 })
 
 Tab:CreateButton({
-    Name = "Verify & Launch",
+    Name = "Launch Script",
     Callback = function()
+        if enteredKey == "" then
+            Rayfield:Notify({
+                Title = "Error",
+                Content = "Please enter a key before launching.",
+                Duration = 4,
+                Image = 4483362458
+            })
+            return
+        end
+
         Rayfield:Notify({
-            Title = "Elite Hub",
-            Content = "Checking key validity...",
+            Title = "Authorizing...",
+            Content = "Checking key integrity with gateway...",
             Duration = 2,
             Image = 4483362458
         })
@@ -201,14 +130,7 @@ Tab:CreateButton({
         task.spawn(function()
             local success, payload = verifyKey(enteredKey)
             if success then
-                pcall(function() Rayfield:Destroy() end)
-                task.wait(0.2)
-                if getgenv then
-                    getgenv().rayfieldCached = nil
-                    getgenv().Rayfield = nil
-                    getgenv().SecureMode = nil
-                    getgenv().RAYFIELD_SECURE = nil
-                end
+                Rayfield:Destroy()
                 executeScript(payload)
             else
                 Rayfield:Notify({
@@ -231,14 +153,7 @@ Tab:CreateButton({
             Rayfield:Notify({
                 Title = "Clipboard",
                 Content = "Discord invite link copied successfully!",
-                Duration = 2.5,
-                Image = 4483362458
-            })
-        else
-            Rayfield:Notify({
-                Title = "Clipboard Error",
-                Content = "Failed to copy automatically: " .. DISCORD_INVITE,
-                Duration = 5,
+                Duration = 3,
                 Image = 4483362458
             })
         end
