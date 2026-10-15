@@ -39,22 +39,22 @@ local function executeScript(code)
     end
     local loaded, compileErr = loadstring(code)
     if loaded then
-        local success, runErr = pcall(loaded)
+        local success, runErr = xpcall(loaded, debug.traceback)
         if not success then
             local errMsg = tostring(runErr)
             warn("[Elite Hub] Runtime Error: " .. errMsg)
             pcall(function()
-                local StarterGui = game:GetService("StarterGui")
-                StarterGui:SetCore("SendNotification", {
-                    Title = "Elite Hub Error",
-                    Text = errMsg:sub(1, 150),
-                    Duration = 10
-                })
-            end)
-            pcall(function()
                 if setclipboard then
                     setclipboard(errMsg)
                 end
+            end)
+            pcall(function()
+                local StarterGui = game:GetService("StarterGui")
+                StarterGui:SetCore("SendNotification", {
+                    Title = "Elite Hub Error (Copied)",
+                    Text = errMsg:sub(1, 140),
+                    Duration = 15
+                })
             end)
         end
     else
