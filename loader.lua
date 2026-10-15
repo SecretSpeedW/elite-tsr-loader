@@ -23,9 +23,46 @@ do
     end
     env.cloneref = safeCloneref
     _G.cloneref = safeCloneref
+    pcall(function() getfenv(0).cloneref = safeCloneref end)
     if hookfunction and origCloneref then
         pcall(hookfunction, origCloneref, safeCloneref)
     end
+
+    local function getCoreGuiFallback()
+        local hui = (env.gethui and env.gethui())
+        if hui then return hui end
+        local lp = game:GetService("Players").LocalPlayer
+        local pg = lp and (lp:FindFirstChild("PlayerGui") or lp:WaitForChild("PlayerGui", 2))
+        return pg or game
+    end
+
+    pcall(function()
+        if hookmetamethod then
+            local oldNc
+            oldNc = hookmetamethod(game, "__namecall", function(self, ...)
+                local method = getnamecallmethod()
+                if (method == "GetService" or method == "getService") and self == game then
+                    local sName = ...
+                    if tostring(sName) == "CoreGui" then
+                        return getCoreGuiFallback()
+                    end
+                end
+                return oldNc(self, ...)
+            end)
+        end
+    end)
+
+    pcall(function()
+        if hookfunction and game and game.GetService then
+            local oldGs
+            oldGs = hookfunction(game.GetService, function(self, sName, ...)
+                if tostring(sName) == "CoreGui" then
+                    return getCoreGuiFallback()
+                end
+                return oldGs(self, sName, ...)
+            end)
+        end
+    end)
 end
 
 local WORKER_URL = "https://elite-hub-gate.pavlo-melnik001.workers.dev"
@@ -140,7 +177,27 @@ if isfile and isfile(SAVE_FILE) then
     end
 end
 
-local Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+local function loadRayfield()
+    local rfCode = game:HttpGet("https://sirius.menu/rayfield")
+    local rfFunc = loadstring(rfCode)
+    pcall(function()
+        local origCloneref = cloneref
+        local safeCloneref = function(obj)
+            if obj == nil then return nil end
+            if origCloneref then
+                local ok, res = pcall(origCloneref, obj)
+                if ok and res ~= nil then return res end
+            end
+            return obj
+        end
+        local baseEnv = (getgenv and getgenv()) or getfenv(0) or _G
+        local newEnv = setmetatable({ cloneref = safeCloneref }, { __index = baseEnv })
+        setfenv(rfFunc, newEnv)
+    end)
+    return rfFunc()
+end
+
+local Rayfield = loadRayfield()
 
 local Window = Rayfield:CreateWindow({
     Name = "Elite Hub | Key Verification",
