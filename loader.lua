@@ -104,49 +104,29 @@ Tab:CreateParagraph({
 
 local enteredKey = ""
 
+local function safeNotify(t, c)
+    pcall(function()
+        Rayfield:Notify({ Title = t, Content = c, Duration = 4, Image = 4483362458 })
+    end)
+end
+
+local enteredKey, submittedKey = "", nil
+
 Tab:CreateInput({
     Name = "License Key",
     PlaceholderText = "Paste your key here...",
     RemoveTextAfterFocusLost = false,
-    Callback = function(text)
-        enteredKey = text
-    end,
+    Callback = function(text) enteredKey = text end,
 })
 
 Tab:CreateButton({
     Name = "Launch Script",
     Callback = function()
         if enteredKey == "" then
-            Rayfield:Notify({
-                Title = "Error",
-                Content = "Please enter a key before launching.",
-                Duration = 4,
-                Image = 4483362458
-            })
+            safeNotify("Error", "Please enter a key before launching.")
             return
         end
-
-        Rayfield:Notify({
-            Title = "Authorizing...",
-            Content = "Checking key integrity with gateway...",
-            Duration = 2,
-            Image = 4483362458
-        })
-
-        task.spawn(function()
-            local success, payload = verifyKey(enteredKey)
-            if success then
-                Rayfield:Destroy()
-                executeScript(payload)
-            else
-                Rayfield:Notify({
-                    Title = "Access Denied",
-                    Content = tostring(payload),
-                    Duration = 4,
-                    Image = 4483362458
-                })
-            end
-        end)
+        submittedKey = enteredKey
     end,
 })
 
@@ -154,14 +134,22 @@ Tab:CreateButton({
     Name = "Copy Discord Server",
     Callback = function()
         local clip = setclipboard or toclipboard or (syn and syn.write_clipboard)
-        if clip then
-            clip(DISCORD_INVITE)
-            Rayfield:Notify({
-                Title = "Clipboard",
-                Content = "Discord invite link copied successfully!",
-                Duration = 3,
-                Image = 4483362458
-            })
-        end
+        if clip then clip(DISCORD_INVITE) safeNotify("Clipboard", "Discord invite copied!") end
     end,
 })
+
+-- Всё важное выполняется в ОСНОВНОМ потоке, а не в колбэке UI
+local payload
+while not payload do
+    if submittedKey then
+        local k = submittedKey
+        submittedKey = nil
+        safeNotify("Authorizing...", "Checking key...")
+        local ok, res = verifyKey(k)
+        if ok then payload = res else safeNotify("Access Denied", tostring(res)) end
+    end
+    task.wait(0.2)
+end
+
+pcall(function() Rayfield:Destroy() end)
+executeScript(payload)
