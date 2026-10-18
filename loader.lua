@@ -192,5 +192,13 @@ while not payload do
     task.wait(0.2)
 end
 
-if Rayfield then pcall(function() Rayfield:Destroy() end) end
-executeScript(payload)
+-- Полная зачистка лоадер-UI: Rayfield:Destroy() не всегда срабатывает на всех эксекуторах
+pcall(function() Rayfield:Destroy() end)
+pcall(function()
+    local rg = pg and pg:FindFirstChild("Rayfield")
+    if rg then rg:Destroy() end
+end)
+print("[Elite Hub] Key accepted — launching script...")
+task.spawn(function()
+    executeScript(payload)
+end)
