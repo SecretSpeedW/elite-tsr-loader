@@ -3,9 +3,6 @@
 
 local lp = game:GetService("Players").LocalPlayer
 local pg = lp and (lp:FindFirstChild("PlayerGui") or lp:WaitForChild("PlayerGui", 5))
-if pg then
-    getgenv().gethui = function() return pg end
-end
 
 local WORKER_URL = "https://elite-hub-gate.pavlo-melnik001.workers.dev"
 local SAVE_FILE = "elite_tsr_key.txt"
@@ -37,12 +34,18 @@ local function executeScript(code)
 end
 
 local function parseResponse(r1, r2)
-	-- разные эксекуторы возвращают таблицу, (table) или (ok, table) или сырое тело строкой
 	local resp = (type(r1) == "table" and r1) or (type(r2) == "table" and r2) or nil
 	if resp then
-		local body = resp.Body or resp.body or ""
-		local code = tonumber(resp.StatusCode or resp.status_code or resp.code or resp.Code or resp.status)
-		return code or 200, body
+		local body = resp.Body or resp.body or resp.Response or resp.response or resp.data or ""
+		local rawCode = resp.StatusCode or resp.status_code or resp.code or resp.Code or resp.status or resp.Status
+		local code = tonumber(rawCode)
+		if not code and type(rawCode) == "string" then
+			code = tonumber(rawCode:match("(%d%d%d)"))
+		end
+		if not code and resp.Success ~= nil then
+			code = resp.Success and 200 or 403
+		end
+		return code or 200, tostring(body)
 	end
 	if type(r1) == "string" then return 200, r1 end
 	if type(r2) == "string" then return 200, r2 end
@@ -59,6 +62,7 @@ local function verifyKey(key)
 			Url = WORKER_URL,
 			Method = "GET",
 			Headers = {
+				["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 				["X-Auth-Key"] = cleanKey
 			}
 		})
@@ -77,19 +81,22 @@ local function verifyKey(key)
 			elseif code == 404 then
 				return false, "Script is currently offline"
 			elseif code >= 500 and attempt < 3 then
-				task.wait(1.5) -- транзишная ошибка воркера — ретрай
+				task.wait(1.5)
 			else
-				return false, "Gateway Error: HTTP " .. tostring(code)
+				local errDetail = (body and body ~= "") and body or ("HTTP " .. tostring(code))
+				return false, "Gateway Error: " .. tostring(errDetail)
 			end
 		elseif attempt < 3 then
-			task.wait(1.5) -- коннект-флоу/таймаут — ретрай
+			task.wait(1.5)
 		else
-			return false, "Connection failed — check your internet/executor HTTP"
+			local failReason = not okHttp and tostring(r1) or "nil response"
+			return false, "Connection failed (" .. failReason .. ")"
 		end
 	end
 	return false, "Connection failed"
 end
 
+-- Проверка сохраненного ключа при старте
 if isfile and isfile(SAVE_FILE) then
     local okr, savedKey = pcall(readfile, SAVE_FILE)
     if okr and savedKey and savedKey ~= "" then
@@ -101,103 +108,151 @@ if isfile and isfile(SAVE_FILE) then
     end
 end
 
-local Rayfield
+-- Загрузка Rayfield UI
+local Rayfield = nil
 local okUI, uiErr = pcall(function()
-    Rayfield = loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
+    return loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 end)
-if not okUI or typeof(Rayfield) ~= "table" then
+if okUI and typeof(uiErr) == "table" then
+    Rayfield = uiErr
+else
     Rayfield = nil
     warn("[Elite Hub] UI library failed to load: " .. tostring(uiErr))
     print("[Elite Hub] Paste your key into '" .. SAVE_FILE .. "' via executor console (writefile) to auto-launch.")
 end
 
-if Rayfield then
-local Window = Rayfield:CreateWindow({
-    Name = "Elite Hub | Key Verification",
-    Icon = 0,
-    LoadingTitle = "Elite Hub",
-    LoadingSubtitle = "Authentication Service",
-    Theme = "Default",
-    DisableRayfieldPrompts = false,
-    ConfigurationSaving = {
-        Enabled = false
-    },
-    KeySystem = false
-})
+local enteredKey = ""
+local submittedKey = nil
+local keyInputObj = nil
 
-local Tab = Window:CreateTab("Authorization", 4483362458)
+local function safeNotify(title, content)
+    if Rayfield then
+        pcall(function()
+            Rayfield:Notify({ Title = title, Content = content, Duration = 4 })
+        end)
+    else
+        print("[Elite Hub] " .. tostring(title) .. ": " .. tostring(content))
+    end
+end
 
-Tab:CreateSection("Access Verification")
-
-Tab:CreateParagraph({
-    Title = "How to get a key?",
-    Content = "Keys are generated and distributed on our official Discord server.\nClick the button below to copy the server invite link."
-})
-
-local enteredKey, submittedKey = "", nil
-
-local function safeNotify(t, c)
+local function cleanLoaderGui()
+    if Rayfield then
+        pcall(function() Rayfield:Destroy() end)
+    end
     pcall(function()
-        Rayfield:Notify({ Title = t, Content = c, Duration = 4, Image = 4483362458 })
+        local function purge(parent)
+            if not parent then return end
+            for _, child in ipairs(parent:GetChildren()) do
+                if child.Name == "Rayfield" or child.Name:match("^Rayfield") then
+                    pcall(function() child:Destroy() end)
+                end
+            end
+        end
+        if gethui then purge(gethui()) end
+        if pg then purge(pg) end
+        pcall(function() purge(game:GetService("CoreGui")) end)
     end)
 end
 
-Tab:CreateInput({
-    Name = "License Key",
-    PlaceholderText = "Paste your key here...",
-    RemoveTextAfterFocusLost = false,
-    Callback = function(text) enteredKey = text end,
-})
+if Rayfield then
+    local Window = Rayfield:CreateWindow({
+        Name = "Elite Hub | Key Verification",
+        Icon = 0,
+        LoadingTitle = "Elite Hub",
+        LoadingSubtitle = "Authentication Service",
+        Theme = "Default",
+        DisableRayfieldPrompts = true,
+        ConfigurationSaving = {
+            Enabled = false
+        },
+        KeySystem = false
+    })
 
-Tab:CreateButton({
-    Name = "Launch Script",
-    Callback = function()
-        if enteredKey == "" then
-            safeNotify("Error", "Please enter a key before launching.")
-            return
-        end
-        submittedKey = enteredKey
-    end,
-})
+    local Tab = Window:CreateTab("Authorization")
 
-Tab:CreateButton({
-    Name = "Copy Discord Server",
-    Callback = function()
-        local clip = setclipboard or toclipboard or (syn and syn.write_clipboard)
-        if clip then clip(DISCORD_INVITE) safeNotify("Clipboard", "Discord invite copied!") end
-    end,
-})
+    Tab:CreateSection("Access Verification")
+
+    Tab:CreateParagraph({
+        Title = "How to get a key?",
+        Content = "Keys are generated and distributed on our official Discord server.\nClick the button below to copy the server invite link."
+    })
+
+    keyInputObj = Tab:CreateInput({
+        Name = "License Key",
+        PlaceholderText = "Paste your key here...",
+        RemoveTextAfterFocusLost = false,
+        Callback = function(text)
+            if type(text) == "string" and text ~= "" then
+                enteredKey = text
+            end
+        end,
+    })
+
+    Tab:CreateButton({
+        Name = "Launch Script",
+        Callback = function()
+            local keyToTest = enteredKey
+            if (not keyToTest or keyToTest == "") and keyInputObj and keyInputObj.CurrentValue then
+                keyToTest = keyInputObj.CurrentValue
+            end
+            if not keyToTest or keyToTest == "" then
+                safeNotify("Error", "Please enter a key before launching.")
+                return
+            end
+            submittedKey = keyToTest
+        end,
+    })
+
+    Tab:CreateButton({
+        Name = "Copy Discord Server",
+        Callback = function()
+            local clip = setclipboard or toclipboard or (syn and syn.write_clipboard)
+            if clip then
+                clip(DISCORD_INVITE)
+                safeNotify("Clipboard", "Discord invite copied!")
+            end
+        end,
+    })
 end
 
--- Всё важное выполняется в ОСНОВНОМ потоке, а не в колбэке UI
+-- Главный цикл верификации
 local lastFileCheck = 0
-local payload
+local payload = nil
+
 while not payload do
     if submittedKey then
         local k = submittedKey
         submittedKey = nil
         safeNotify("Authorizing...", "Checking key...")
         local ok, res = verifyKey(k)
-        if ok then payload = res else safeNotify("Access Denied", tostring(res)) end
+        if ok then
+            payload = res
+            safeNotify("Success", "Key accepted! Loading script...")
+        else
+            safeNotify("Access Denied", tostring(res))
+        end
     end
-    -- fallback без UI: ключ, записанный в файл, проверяется автоматически
+
     if not Rayfield and os.clock() - lastFileCheck > 3 and isfile and isfile(SAVE_FILE) then
         lastFileCheck = os.clock()
         local okr, savedKey = pcall(readfile, SAVE_FILE)
         if okr and savedKey and savedKey ~= "" then
             local ok, res = verifyKey(savedKey)
-            if ok then payload = res else warn("[Elite Hub] " .. tostring(res)) end
+            if ok then
+                payload = res
+            else
+                warn("[Elite Hub] " .. tostring(res))
+            end
         end
     end
+
     task.wait(0.2)
 end
 
--- Полная зачистка лоадер-UI: Rayfield:Destroy() не всегда срабатывает на всех эксекуторах
-pcall(function() Rayfield:Destroy() end)
-pcall(function()
-    local rg = pg and pg:FindFirstChild("Rayfield")
-    if rg then rg:Destroy() end
-end)
+-- Зачистка лоадера перед запуском основного скрипта
+cleanLoaderGui()
+task.wait(0.5)
+
 print("[Elite Hub] Key accepted — launching script...")
 task.spawn(function()
     executeScript(payload)
